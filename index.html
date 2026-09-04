@@ -144,7 +144,7 @@ button{
   button{
     width:260px;
     height:80px;
-    font-size:33px;
+    font-size:33px; 
   }
 
   #result{
@@ -162,13 +162,13 @@ button{
 <div class="top-area">
 
 <button id="micButton" onclick="start()">
-🎤 マイクを使う
+マイクを許可
 </button>
 
 </div>
 
 
-<select id="unitSelect" onchange="changeUnit()">
+<select id="unitSelect" onchange="changeUnit">
 
 <option value="all">全部</option>
 
@@ -203,7 +203,7 @@ placeholder="ここに認識結果が表示されます"
 
 <button onclick="nextQuestion()">次の問題</button>
 
-<button onclick="repeatAudio()">もう一回聞く</button>
+<button onclick="repeatAudio()"> もう一回聞く</button>
 
 </div>
 
@@ -226,12 +226,17 @@ let latestText = "";
 let wrongQuestions = [];
 
 
-// 現在、マイクを聞き続けたい状態か
-let listening = false;
+// 現在、音声認識を続けたい状態かどうか
+let shouldListen = false;
 
 
-// 判定処理中か
-let judging = false;
+// 「判定」を実行しているか
+let isJudging = false;
+
+
+// 音声認識を開始処理中かどうか
+let isStarting = false;
+
 
 
 function normalize(text){
@@ -244,9 +249,11 @@ function normalize(text){
 }
 
 
+
 const SpeechRecognition =
   window.SpeechRecognition ||
   window.webkitSpeechRecognition;
+
 
 
 if(SpeechRecognition){
@@ -260,7 +267,10 @@ if(SpeechRecognition){
   speech.interimResults = false;
 
 
-  // 音声を認識したとき
+  /*
+    音声を認識したとき
+  */
+
   speech.onresult = function(e){
 
     latestText =
@@ -272,77 +282,103 @@ if(SpeechRecognition){
   };
 
 
-  // 音声認識が終了したとき
+  /*
+    音声認識が終了したとき
+  */
+
   speech.onend = function(){
 
-    /*
-      子どもが考えている途中などに、
-      ブラウザ側が音声認識を終了することがあります。
+    isStarting = false;
 
-      その場合は自動的にもう一度開始します。
+
+    /*
+      「判定」などで意図的に止めたのではなく、
+      まだ問題に答えている途中なら
+      自動的にもう一度聞き始める。
     */
 
-    if(listening && !judging){
+    if(shouldListen && !isJudging){
 
-      setTimeout(() => {
+      setTimeout(function(){
 
-        try{
+        startRecognition();
 
-          speech.start();
-
-        }catch(error){
-
-          console.log(error);
-
-        }
-
-      },300);
+      },500);
 
     }
 
   };
 
 
-  // マイク・音声認識のエラー
+  /*
+    音声認識エラー
+  */
+
   speech.onerror = function(event){
 
-    console.log("音声認識エラー:", event.error);
+    console.log(
+      "音声認識エラー:",
+      event.error
+    );
+
+
+    isStarting = false;
 
 
     /*
-      判定中ではなく、マイクを使いたい状態なのに
-      エラーが出た場合だけメッセージを表示します。
+      「no-speech」は、
+      子どもが考えていて何も話さなかった場合などに
+      起こることがあります。
+
+      この場合はエラー表示をせず、
+      onendで自動的に再スタートします。
     */
 
-    if(!judging){
+    if(event.error === "no-speech"){
 
-      if(
-        event.error === "not-allowed" ||
-        event.error === "service-not-allowed"
-      ){
+      return;
 
-        document.getElementById("result").innerText =
-          "🎤 マイクが使えません。\n" +
-          "スマホの設定でChromeのマイクを「許可」にしてください。";
+    }
 
-      }
 
-      else if(event.error === "no-speech"){
+    /*
+      マイクの使用が拒否された場合
+    */
 
-        /*
-          無音による終了は、
-          onendで自動的に再スタートするので
-          エラーメッセージは表示しません。
-        */
+    if(
+      event.error === "not-allowed" ||
+      event.error === "service-not-allowed"
+    ){
 
-      }
+      shouldListen = false;
 
-      else{
+      document.getElementById(
+        "micButton"
+      ).style.display = "block";
 
-        document.getElementById("result").innerText =
-          "🎤 マイクを確認してください。";
 
-      }
+      document.getElementById(
+        "result"
+      ).innerText =
+        "🎤 マイクが使えません。\n" +
+        "スマホの設定でChromeのマイクを「許可」にしてください。";
+
+
+      return;
+
+    }
+
+
+    /*
+      その他のエラー
+    */
+
+    if(!isJudging){
+
+      document.getElementById(
+        "result"
+      ).innerText =
+        "🎤 マイクを確認してください。";
 
     }
 
@@ -351,7 +387,9 @@ if(SpeechRecognition){
 
 }else{
 
-  alert("このブラウザは音声認識に対応していません");
+  alert(
+    "このブラウザは音声認識に対応していません"
+  );
 
 }
 
@@ -371,6 +409,7 @@ function showQuestion(){
   latestText = "";
 
 }
+
 
 
 showQuestion();
@@ -394,6 +433,90 @@ function speakAnswer(message){
 
 
 
+/*
+  実際に音声認識を開始する処理
+*/
+
+function startRecognition(){
+
+  if(!speech){
+
+    return;
+
+  }
+
+
+  if(!shouldListen){
+
+    return;
+
+  }
+
+
+  if(isJudging){
+
+    return;
+
+  }
+
+
+  if(isStarting){
+
+    return;
+
+  }
+
+
+  isStarting = true;
+
+
+  try{
+
+    speech.start();
+
+    document.getElementById(
+      "micButton"
+    ).style.display = "none";
+
+
+  }catch(error){
+
+    /*
+      Android Chromeなどでは、
+      前の認識処理が完全に終了する前に
+      start()するとエラーになることがあります。
+
+      その場合は少し待ってから再試行します。
+    */
+
+    console.log(
+      "音声認識開始エラー:",
+      error
+    );
+
+    isStarting = false;
+
+
+    if(shouldListen && !isJudging){
+
+      setTimeout(function(){
+
+        startRecognition();
+
+      },800);
+
+    }
+
+  }
+
+}
+
+
+
+/*
+  「マイクを許可」ボタン
+*/
+
 function start(){
 
   if(!speech){
@@ -404,51 +527,44 @@ function start(){
 
 
   /*
-    マイクを使いたい状態にする
+    この問題ではマイクを聞き続ける
   */
 
-  listening = true;
+  shouldListen = true;
 
-  judging = false;
+  isJudging = false;
 
   latestText = "";
 
 
-  try{
+  /*
+    画面に表示されていたエラーメッセージを消す
+  */
 
-    speech.start();
+  document.getElementById(
+    "result"
+  ).innerText = "";
 
-    /*
-      正常に開始したらボタンを消す
-    */
 
-    document.getElementById(
-      "micButton"
-    ).style.display = "none";
-
-  }catch(error){
-
-    console.log(error);
-
-  }
+  startRecognition();
 
 }
 
 
 
+/*
+  「判定」ボタン
+*/
+
 function stop(){
 
   /*
-    ここで「聞き続けたい状態」を終了させます。
-
-    これをしないと、
-    speech.stop() → onend → 自動再スタート
-    となってしまいます。
+    ここで自動再スタートを止める
   */
 
-  listening = false;
+  shouldListen = false;
 
-  judging = true;
+  isJudging = true;
 
 
   if(speech){
@@ -466,7 +582,7 @@ function stop(){
   }
 
 
-  setTimeout(() => {
+  setTimeout(function(){
 
     judge();
 
@@ -490,10 +606,15 @@ function judge(){
 
   if(user === correct){
 
-    document.getElementById("result").innerText =
+    document.getElementById(
+      "result"
+    ).innerText =
       "◎ 正解！";
 
-    document.getElementById("answer").innerText =
+
+    document.getElementById(
+      "answer"
+    ).innerText =
       currentData[current].en;
 
 
@@ -505,14 +626,23 @@ function judge(){
 
   else{
 
-    document.getElementById("result").innerText =
+    document.getElementById(
+      "result"
+    ).innerText =
       "❌ ちがいます";
 
-    document.getElementById("answer").innerText =
+
+    document.getElementById(
+      "answer"
+    ).innerText =
       currentData[current].en;
 
 
-    if(!wrongQuestions.includes(currentData[current])){
+    if(
+      !wrongQuestions.includes(
+        currentData[current]
+      )
+    ){
 
       wrongQuestions.push(
         currentData[current]
@@ -531,19 +661,37 @@ function judge(){
 
 
 
+/*
+  次の問題
+*/
+
 function nextQuestion(){
 
   speechSynthesis.cancel();
 
 
   /*
-    次の問題では、
-    またマイクを使う状態に戻します。
+    現在の音声認識を止める
   */
 
-  listening = false;
+  shouldListen = false;
 
-  judging = false;
+  isJudging = false;
+
+
+  if(speech){
+
+    try{
+
+      speech.stop();
+
+    }catch(error){
+
+      console.log(error);
+
+    }
+
+  }
 
 
   current++;
@@ -568,20 +716,22 @@ function nextQuestion(){
 
     else{
 
-      alert("クリア！");
+      alert(" クリア！");
 
       current = 0;
 
       showQuestion();
 
+
       /*
-        クリア後は最初の問題に戻るので
-        マイクボタンを再表示
+        最初の問題に戻ったので
+        マイクボタンを表示
       */
 
       document.getElementById(
         "micButton"
       ).style.display = "block";
+
 
       return;
 
@@ -594,14 +744,18 @@ function nextQuestion(){
 
 
   /*
-    少し待ってからマイク開始
+    次の問題のマイクを開始
   */
 
-  setTimeout(() => {
+  setTimeout(function(){
 
-    start();
+    shouldListen = true;
 
-  },300);
+    isJudging = false;
+
+    startRecognition();
+
+  },500);
 
 }
 
@@ -620,13 +774,13 @@ function repeatAudio(){
 function changeUnit(){
 
   /*
-    問題を切り替えたら、
-    一度音声認識を止めます。
+    問題を切り替えるので
+    音声認識を一度止める
   */
 
-  listening = false;
+  shouldListen = false;
 
-  judging = false;
+  isJudging = false;
 
 
   if(speech){
@@ -654,7 +808,9 @@ function changeUnit(){
 
     currentData = data;
 
-  }else{
+  }
+
+  else{
 
     currentData =
       data.filter(
